@@ -55,6 +55,7 @@ import tech.ydb.yoj.repository.db.exception.OptimisticLockException;
 import tech.ydb.yoj.repository.db.exception.RepositoryException;
 import tech.ydb.yoj.repository.db.exception.UnavailableException;
 import tech.ydb.yoj.repository.db.readtable.ReadTableParams;
+import tech.ydb.yoj.repository.db.scanquery.ScanQueryParams;
 import tech.ydb.yoj.repository.ydb.bulk.BulkMapper;
 import tech.ydb.yoj.repository.ydb.client.ResultSetConverter;
 import tech.ydb.yoj.repository.ydb.client.YdbConverter;
@@ -414,6 +415,15 @@ public class YdbRepositoryTransaction<REPO extends YdbRepository>
 
     @Override
     public <PARAMS, RESULT> Stream<RESULT> executeScanQuery(Statement<PARAMS, RESULT> statement, PARAMS params) {
+        return executeScanQuery(statement,
+                ScanQueryParams.<PARAMS>builder().useNewSpliterator(true).queryParams(params).build());
+    }
+
+    @Override
+    public <PARAMS, RESULT> Stream<RESULT> executeScanQuery(
+            Statement<PARAMS, RESULT> statement,
+            ScanQueryParams<PARAMS> params
+    ) {
         if (!options.isScan()) {
             throw new IllegalStateException("Scan query can be used only from scan tx");
         }
@@ -424,17 +434,31 @@ public class YdbRepositoryTransaction<REPO extends YdbRepository>
                 .build();
 
         String yql = getYql(statement);
-        Params sdkParams = getSdkParams(statement, params);
+        Params sdkParams = getSdkParams(statement, params.getQueryParams());
 
-        YdbSpliterator<RESULT> spliterator = createSpliterator("scanQuery: " + yql, false);
+        if (params.isUseNewSpliterator()) {
+            YdbSpliterator<RESULT> spliterator = createSpliterator("scanQuery: " + yql, params.isOrdered());
 
-        initSession();
-        session.executeScanQuery(
-                yql, sdkParams, settings,
-                rs -> new ResultSetConverter(rs).stream(statement::readResult).forEach(spliterator::onNext)
-        ).whenComplete(spliterator::onSupplierThreadComplete);
+            initSession();
+            session.executeScanQuery(
+                    yql, sdkParams, settings,
+                    rs -> new ResultSetConverter(rs).stream(statement::readResult).forEach(spliterator::onNext)
+            ).whenComplete(spliterator::onSupplierThreadComplete);
 
-        return spliterator.createStream();
+            return spliterator.createStream();
+        }
+
+        YdbLegacySpliterator<RESULT> spliterator = new YdbLegacySpliterator<>(params.isOrdered(), action ->
+                doCall("scan query " + yql, () -> {
+                    Status status = YdbOperations.safeJoin(
+                            session.executeScanQuery(yql, sdkParams, settings,
+                                    rs -> new ResultSetConverter(rs).stream(statement::readResult).forEach(action)
+                            )
+                    );
+                    validate("SCAN_QUERY: " + yql, status.getCode(), status.toString());
+                }));
+        return spliterator.makeStream();
+
     }
 
     private QueryStatsCollectionMode getSdkStatsMode() {

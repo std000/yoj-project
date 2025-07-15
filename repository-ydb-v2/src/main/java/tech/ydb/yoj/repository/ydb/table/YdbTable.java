@@ -21,6 +21,7 @@ import tech.ydb.yoj.repository.db.bulk.BulkParams;
 import tech.ydb.yoj.repository.db.cache.FirstLevelCache;
 import tech.ydb.yoj.repository.db.cache.TransactionLocal;
 import tech.ydb.yoj.repository.db.readtable.ReadTableParams;
+import tech.ydb.yoj.repository.db.scanquery.ScanQueryParams;
 import tech.ydb.yoj.repository.db.statement.Changeset;
 import tech.ydb.yoj.repository.ydb.bulk.BulkMapper;
 import tech.ydb.yoj.repository.ydb.bulk.BulkMapperImpl;
@@ -591,6 +592,8 @@ public class YdbTable<T extends Entity<T>> implements Table<T> {
 
         <PARAMS, RESULT> Stream<RESULT> executeScanQuery(Statement<PARAMS, RESULT> statement, PARAMS params);
 
+        <PARAMS, RESULT> Stream<RESULT> executeScanQuery(Statement<PARAMS, RESULT> statement, ScanQueryParams<PARAMS> params);
+
         <PARAMS> void pendingExecute(Statement<PARAMS, ?> statement, PARAMS value);
 
         default <IN> void bulkUpsert(BulkMapper<IN> mapper, List<IN> input, BulkParams params) {
@@ -623,6 +626,11 @@ public class YdbTable<T extends Entity<T>> implements Table<T> {
 
         @Override
         public <PARAMS, RESULT> Stream<RESULT> executeScanQuery(Statement<PARAMS, RESULT> statement, PARAMS params) {
+            return delegate.executeScanQuery(statement, params);
+        }
+
+        @Override
+        public <PARAMS, RESULT> Stream<RESULT> executeScanQuery(Statement<PARAMS, RESULT> statement, ScanQueryParams<PARAMS> params) {
             return delegate.executeScanQuery(statement, params);
         }
 
